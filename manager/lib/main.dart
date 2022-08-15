@@ -15,7 +15,6 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Mediscara Manager',
-      home: const LoginWidget(),
       theme: ThemeData(
         // This is the theme of your application.
         //
@@ -29,6 +28,7 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: Colors.blue,
         useMaterial3: true,
       ),
+      home: const LoginWidget(),
     );
   }
 }

@@ -1,7 +1,11 @@
+import 'dart:developer';
+
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
+import 'package:manager/content.dart';
 import 'package:manager/services/auth.dart';
+import 'package:manager/services/auth.exceptions.dart';
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({Key? key}) : super(key: key);
@@ -17,6 +21,8 @@ class _LoginWidgetState extends State<LoginWidget> {
   final AuthService _auth = AuthService();
 
   final _formKey = GlobalKey<FormState>();
+
+  String _message = "";
 
   @override
   void initState() {
@@ -38,6 +44,75 @@ class _LoginWidgetState extends State<LoginWidget> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  void signIn() async {
+    authenticate().then((success) {
+      if (success) {
+        setState(() {
+          _message = ""; // remove old messages
+        });
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const ContentWidget()),
+        );
+      }
+    });
+  }
+
+  Future<bool> authenticate() async {
+    final token = await _auth
+        .getAPIToken(
+      email: _emailController.text,
+      password: _passwordController.text,
+    )
+        .catchError(
+      (error) {
+        log("Server unreachable");
+        setState(() {
+          _message = "Could not reach authentication server";
+        });
+        return "";
+      },
+      test: (error) => error is ServerUnreachableException,
+    ).catchError(
+      (error) {
+        log("Invalid credentials");
+        setState(() {
+          _message = "Email and password is incorrect";
+        });
+        return "";
+      },
+      test: (error) => error is AuthenticationException,
+    ).catchError((error) {
+      log("Unknown error: ${error.toString()}");
+      return "";
+    });
+
+    if (token == "") return false;
+
+    // get oauth 2 token
+    await _auth
+        .getOAuth2Token(
+      email: _emailController.text,
+      password: _passwordController.text,
+    )
+        .catchError(
+      (error) {
+        setState(() {
+          _message = error.toString();
+        });
+      },
+      test: (error) => error is AuthenticationException,
+    );
+
+    await _auth.getUserFromToken();
+
+    await _auth.getUserRoles();
+    await _auth.getRoles();
+
+    return true;
   }
 
   @override
@@ -90,11 +165,26 @@ class _LoginWidgetState extends State<LoginWidget> {
                   obscureText: true,
                 ),
                 const SizedBox(height: 20),
+                Visibility(
+                  visible: _message.isNotEmpty,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Card(
+                          color: Colors.amber,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8.0),
+                            child: Text(_message),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 ElevatedButton(
                   onPressed: () {
                     if (_formKey.currentState!.validate()) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Signing in")));
+                      signIn();
                     }
                   },
                   child: const Text("Sign in"),
