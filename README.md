@@ -1,4 +1,5 @@
 # Mediscara Manager Web Application
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 This software is part of the MediSCARA project's ROSE-AP platform.
 It enables agile production at the shop-floor level by allowing a manager to pre-define the order and and magnitude of manufacturing.
