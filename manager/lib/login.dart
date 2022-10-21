@@ -1,11 +1,10 @@
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
-
 import 'package:flutter/material.dart';
 import 'package:manager/content.dart';
-import 'package:manager/services/auth.dart';
 import 'package:manager/services/auth.exceptions.dart';
+import 'services/auth.dart';
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({Key? key}) : super(key: key);
@@ -15,104 +14,133 @@ class LoginWidget extends StatefulWidget {
 }
 
 class _LoginWidgetState extends State<LoginWidget> {
-  late TextEditingController _emailController;
-  late TextEditingController _passwordController;
+  late TextEditingController _emailEditingController;
+  late TextEditingController _passwordEditingController;
 
   final AuthService _auth = AuthService();
 
+  String _message = "";
+
   final _formKey = GlobalKey<FormState>();
 
-  String _message = "";
+  /// True if the keyboard is editing the email
+  /// false if the keyboard is editing the password
+  bool emailEditing = true;
 
   @override
   void initState() {
     super.initState();
 
-    _emailController = TextEditingController();
-    _passwordController = TextEditingController();
+    _emailEditingController = TextEditingController();
+    _passwordEditingController = TextEditingController();
 
     if (kDebugMode) {
       setState(() {
-        _emailController.text = 'admin@test.com';
-        _passwordController.text = '1234';
+        _emailEditingController.text = 'admin@test.com';
+        _passwordEditingController.text = '1234';
       });
     }
   }
 
   @override
   void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
+    _emailEditingController.dispose();
+    _passwordEditingController.dispose();
     super.dispose();
   }
 
   void signIn() async {
-    authenticate().then((success) {
-      if (success) {
-        setState(() {
-          _message = ""; // remove old messages
-        });
-
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const ContentWidget()),
-        );
-      }
-    });
+    authenticate().then(
+      (success) {
+        if (success) {
+          setState(() {
+            _message = ""; // remove any old messages
+          });
+          // open the content page
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const ContentWidget(),
+            ),
+          );
+        }
+      },
+    );
   }
 
   Future<bool> authenticate() async {
-    final token = await _auth
-        .getAPIToken(
-      email: _emailController.text,
-      password: _passwordController.text,
-    )
-        .catchError(
-      (error) {
-        log("Server unreachable");
-        setState(() {
-          _message = "Could not reach authentication server";
-        });
-        return "";
-      },
-      test: (error) => error is ServerUnreachableException,
-    ).catchError(
-      (error) {
-        log("Invalid credentials");
-        setState(() {
-          _message = "Email and password is incorrect";
-        });
-        return "";
-      },
-      test: (error) => error is AuthenticationException,
-    ).catchError((error) {
-      log("Unknown error: ${error.toString()}");
-      return "";
-    });
+    // validate the email first
+    if (_formKey.currentState!.validate()) {
+      // get the api token first
+      final token = await _auth
+          .getAPIToken(
+        email: _emailEditingController.text,
+        password: _passwordEditingController.text,
+      )
+          .catchError(
+        (error) {
+          log("Server unreachable");
+          setState(() {
+            _message = "Could not connect to the server";
+          });
+          return "";
+        },
+        test: (error) => error is ServerUnreachableException,
+      ).catchError(
+        (error) {
+          log("Invalid credentials");
+          setState(() {
+            _message = "Email or password is invalid";
+          });
+          return "";
+        },
+        test: (error) => error is AuthenticationException,
+      );
 
-    if (token == "") return false;
+      if (token == "") return false;
 
-    // get oauth 2 token
-    await _auth
-        .getOAuth2Token(
-      email: _emailController.text,
-      password: _passwordController.text,
-    )
-        .catchError(
-      (error) {
-        setState(() {
-          _message = error.toString();
-        });
+      // get the oauth2 token
+      final oauth2Token = await _auth
+          .getOAuth2Token(
+        email: _emailEditingController.text,
+        password: _passwordEditingController.text,
+      )
+          .catchError(
+        (error) {
+          log("Invalid client id or secret: $error");
+          setState(() {
+            _message = "Invalid client id or secret";
+          });
+          return '';
+        },
+        test: (error) => error is AuthenticationException,
+      );
+
+      // check if the oauth2 authentication was successful
+      if (oauth2Token == "") return false;
+
+      // get the user from the oauth2 token
+      await _auth.getUserFromToken();
+      // gett the user roles with the api token
+      await _auth.getUserRoles();
+      await _auth.getRoles();
+
+      return true;
+    }
+    return false;
+  }
+
+  void getUserWithToken(String token) {
+    _auth.getUserFromToken(token).then(
+      (user) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ContentWidget(),
+          ),
+        );
       },
-      test: (error) => error is AuthenticationException,
     );
-
-    await _auth.getUserFromToken();
-
-    await _auth.getUserRoles();
-    await _auth.getRoles();
-
-    return true;
   }
 
   @override
@@ -137,7 +165,9 @@ class _LoginWidgetState extends State<LoginWidget> {
                 ),
                 const SizedBox(height: 20),
                 TextFormField(
-                  controller: _emailController,
+                  autofocus: true,
+                  onTap: () => emailEditing = true,
+                  controller: _emailEditingController,
                   validator: (String? value) {
                     if (value != null && value.isEmpty) {
                       return "This field is required";
@@ -149,22 +179,26 @@ class _LoginWidgetState extends State<LoginWidget> {
                     labelText: "Email",
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 10),
                 TextFormField(
-                  controller: _passwordController,
+                  onTap: () => emailEditing = false,
+                  controller: _passwordEditingController,
                   validator: (String? value) {
                     if (value != null && value.isEmpty) {
                       return "This field is required";
                     }
                     return null;
                   },
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    suffixIcon: IconButton(
+                      onPressed: signIn,
+                      icon: const Icon(Icons.login),
+                    ),
+                    border: const OutlineInputBorder(),
                     labelText: "Password",
                   ),
-                  obscureText: true,
                 ),
-                const SizedBox(height: 20),
                 Visibility(
                   visible: _message.isNotEmpty,
                   child: Row(
@@ -180,15 +214,7 @@ class _LoginWidgetState extends State<LoginWidget> {
                       ),
                     ],
                   ),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      signIn();
-                    }
-                  },
-                  child: const Text("Sign in"),
-                ),
+                )
               ],
             ),
           ),
